@@ -25,7 +25,7 @@ import time
 from datetime import datetime, timezone
 
 from bench import run_bench, PROMPTS
-from server import LlamaCppBackend
+from server import LlamaCppBackend, NeuralLlamaBackend
 
 
 # ---------------------------------------------------------------------------
@@ -51,23 +51,37 @@ def run_single(
     draft_path: str | None,
     label: str,
     settings: dict,
+    backend_type: str = "llamacpp",
 ) -> dict:
     """Start a server, benchmark it, stop it, and return result dict."""
     t_wall_start = time.monotonic()
 
     port = settings.get("port", 8080)
     log_file = os.path.join(tempfile.gettempdir(), f"draftbench_server_{port}.log")
-
-    backend = LlamaCppBackend(
-        model_path=target_path,
-        draft_path=draft_path,
-        host="127.0.0.1",
-        port=port,
-        gpu_layers=settings.get("gpu_layers", 99),
-        ctx_size=settings.get("ctx_size", 4096),
-        llama_bin=settings.get("llama_bin"),
-        log_file=log_file,
-    )
+    
+    # Choose backend based on backend_type parameter
+    if backend_type.lower() in ["neural-llama", "neurallama"]:
+        backend = NeuralLlamaBackend(
+            model_path=target_path,
+            draft_path=draft_path,
+            host="127.0.0.1",
+            port=port,
+            gpu_layers=settings.get("gpu_layers", 99),
+            ctx_size=settings.get("ctx_size", 4096),
+            llama_bin=settings.get("llama_bin"),
+            log_file=log_file,
+        )
+    else:  # Default to llama.cpp
+        backend = LlamaCppBackend(
+            model_path=target_path,
+            draft_path=draft_path,
+            host="127.0.0.1",
+            port=port,
+            gpu_layers=settings.get("gpu_layers", 99),
+            ctx_size=settings.get("ctx_size", 4096),
+            llama_bin=settings.get("llama_bin"),
+            log_file=log_file,
+        )
 
     backend.start()
     print(f"  Waiting for server ...")
@@ -111,6 +125,20 @@ def run_single(
     return result
 
 
+def _convert_builtin_model_path(model_path: str) -> str:
+    """Convert built-in model identifiers to command line flags."""
+    builtin_mapping = {
+        "fim-qwen-0.5b-default": "--fim-qwen-0.5b-default",
+        "fim-qwen-1.5b-default": "--fim-qwen-1.5b-default", 
+        "fim-qwen-3b-default": "--fim-qwen-3b-default",
+        "fim-qwen-7b-default": "--fim-qwen-7b-default",
+        "fim-qwen-7b-spec": "--fim-qwen-7b-spec",
+        "fim-qwen-14b-spec": "--fim-qwen-14b-spec",
+        "fim-qwen-30b-default": "--fim-qwen-30b-default",
+    }
+    return builtin_mapping.get(model_path, model_path)
+
+
 def _load_existing_results(results_path: str) -> list[dict]:
     """Load existing results from a previous run, if any."""
     if not os.path.isfile(results_path):
@@ -130,6 +158,7 @@ def run_sweep(config: dict, results_path: str) -> list[dict]:
     targets = config["targets"]
     drafts = config.get("drafts", [])
     settings = config.get("settings", {})
+    backend_type = config.get("backend", "llamacpp")
 
     total_runs = len(targets) * (1 + len(drafts))
 
@@ -157,7 +186,7 @@ def run_sweep(config: dict, results_path: str) -> list[dict]:
         else:
             print(f"[{run_idx}/{total_runs}] {target_label} (baseline)")
             try:
-                result = run_single(target_path, None, f"{target_label} baseline", settings)
+                result = run_single(target_path, None, f"{target_label} baseline", settings, backend_type)
             except Exception as e:
                 print(f"  SKIPPED: {e}")
                 # Skip all drafts for this target since we have no baseline
@@ -185,7 +214,7 @@ def run_sweep(config: dict, results_path: str) -> list[dict]:
 
             print(f"[{run_idx}/{total_runs}] {combo_label}")
             try:
-                result = run_single(target_path, draft_path, combo_label, settings)
+                result = run_single(target_path, draft_path, combo_label, settings, backend_type)
             except Exception as e:
                 print(f"  SKIPPED: {e}\n")
                 continue

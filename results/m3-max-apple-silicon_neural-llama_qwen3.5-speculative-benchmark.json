@@ -1,0 +1,48 @@
+{
+  "timestamp": "2026-03-17T10:24:11.913347+00:00",
+  "name": "qwen3.5-speculative-benchmark",
+  "hardware": "m3-max-apple-silicon",
+  "backend": "neural-llama",
+  "model_family": "Qwen 3.5 Speculative",
+  "settings": {
+    "llama_bin": "/Users/sam/Documents/git/crucible/neural-llama/build-apple-silicon/bin/llama-server",
+    "runs": 1,
+    "max_tokens": 256,
+    "temperature": 0.0,
+    "gpu_layers": 99,
+    "ctx_size": 4096,
+    "port": 8080
+  },
+  "results": [
+    {
+      "target": "Qwen3.5-9B-f16",
+      "draft": null,
+      "mean_tps": 11.71,
+      "median_tps": 0.0,
+      "mean_ttft": 11.04,
+      "mean_total_time": 13.46,
+      "wall_time": 43.96,
+      "acceptance_rate": null
+    },
+    {
+      "target": "Qwen3.5-9B-f16",
+      "draft": "Qwen2.5-0.5B-f16",
+      "mean_tps": 11.8,
+      "median_tps": 0.0,
+      "mean_ttft": 11.096,
+      "mean_total_time": 13.5,
+      "wall_time": 43.96,
+      "acceptance_rate": null
+    },
+    {
+      "target": "Qwen3.5-9B-f16",
+      "draft": "Qwen2.5-1.5B-f16",
+      "mean_tps": 11.6,
+      "median_tps": 0.0,
+      "mean_ttft": 11.147,
+      "mean_total_time": 13.59,
+      "wall_time": 46.47,
+      "acceptance_rate": null
+    }
+  ]
+}

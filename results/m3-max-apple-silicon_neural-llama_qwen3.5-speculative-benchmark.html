@@ -1,0 +1,146 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8">
+    <title>draftbench - Speculative Decoding Sweep</title>
+    <script src="https://cdn.plot.ly/plotly-2.35.2.min.js"></script>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+            max-width: 1400px;
+            margin: 0 auto;
+            padding: 20px;
+            background: #1a1a2e;
+            color: #eee;
+        }
+        h1 {
+            text-align: center;
+            color: #fff;
+            margin-bottom: 10px;
+        }
+        h2 {
+            text-align: center;
+            color: #888;
+            font-weight: normal;
+            margin-top: 0;
+        }
+        .chart {
+            background: #16213e;
+            border-radius: 12px;
+            padding: 20px;
+            margin: 30px 0;
+            box-shadow: 0 4px 20px rgba(0,0,0,0.3);
+        }
+        .chart-title {
+            color: #fff;
+            font-size: 1.2em;
+            margin-bottom: 10px;
+            padding-left: 10px;
+        }
+    </style>
+</head>
+<body>
+    <h1>Speculative Decoding Benchmark</h1>
+    <h2>Qwen 3.5 Speculative on m3-max-apple-silicon (neural-llama)</h2>
+
+    <div class="chart">
+        <div class="chart-title">Throughput Comparison (tokens/sec)</div>
+        <div id="summary-chart"></div>
+    </div>
+
+    <div class="chart">
+        <div class="chart-title">Speedup vs Baseline (%)</div>
+        <div id="speedup-chart"></div>
+    </div>
+
+    <div class="chart">
+        <div class="chart-title">Full Results Heatmap (% Speedup)</div>
+        <div id="heatmap-chart"></div>
+    </div>
+
+    <script>
+        var darkLayout = {
+            paper_bgcolor: '#16213e',
+            plot_bgcolor: '#16213e',
+            font: { color: '#eee' },
+            xaxis: { gridcolor: '#2a3a5e', title: 'Target Model' },
+            yaxis: { gridcolor: '#2a3a5e' },
+        };
+
+        var summaryTraces = [{"x": ["Qwen3.5-9B-f16"], "y": [11.71], "text": ["11.7"], "textposition": "outside", "name": "Baseline (no draft)", "type": "bar", "marker": {"color": "#636EFA"}}];
+        Plotly.newPlot('summary-chart', summaryTraces, {
+            ...darkLayout,
+            barmode: 'group',
+            yaxis: { ...darkLayout.yaxis, title: 'Tokens per Second' },
+            legend: { orientation: 'h', y: -0.15, font: { color: '#eee' } },
+            margin: { b: 80, t: 20 },
+            height: 400,
+        }, { responsive: true });
+
+        var speedupTraces = [];
+        Plotly.newPlot('speedup-chart', speedupTraces, {
+            ...darkLayout,
+            barmode: 'group',
+            yaxis: { ...darkLayout.yaxis, title: 'Speedup (%)' },
+            legend: { orientation: 'h', y: -0.15, font: { color: '#eee' } },
+            margin: { b: 80, t: 20 },
+            height: 400,
+            shapes: [{
+                type: 'line', x0: 0, x1: 1, xref: 'paper',
+                y0: 0, y1: 0, yref: 'y',
+                line: { color: '#666', width: 2, dash: 'dash' }
+            }]
+        }, { responsive: true });
+
+        var heatmapTrace = [{
+            z: [[0.8], [-0.9]],
+            x: ["Qwen3.5-9B-f16"],
+            y: ["Qwen2.5-0.5B-f16", "Qwen2.5-1.5B-f16"],
+            hovertemplate: '<b>%{y}</b> → %{x}<br>Speedup: <b>%{z:.1f}%</b><extra></extra>',
+            type: 'heatmap',
+            colorscale: [
+                [0, '#dc3545'],
+                [0.4, '#fd7e14'],
+                [0.5, '#ffc107'],
+                [0.7, '#28a745'],
+                [1, '#00ff88']
+            ],
+            zmin: 0,
+            zmax: 85,
+            colorbar: {
+                title: 'Speedup %',
+                tickfont: { color: '#eee', size: 14 },
+                titlefont: { color: '#eee', size: 14 },
+                tickvals: [0, 20, 40, 60, 80],
+                ticktext: ['0%', '+20%', '+40%', '+60%', '+80%'],
+                len: 0.9
+            },
+            hoverongaps: false,
+            xgap: 2,
+            ygap: 1,
+        }];
+
+        var numDrafts = ["Qwen2.5-0.5B-f16", "Qwen2.5-1.5B-f16"].length;
+        var heatmapHeight = Math.max(500, numDrafts * 22 + 100);
+
+        Plotly.newPlot('heatmap-chart', heatmapTrace, {
+            ...darkLayout,
+            xaxis: {
+                ...darkLayout.xaxis,
+                side: 'top',
+                tickfont: { size: 14, color: '#eee' },
+                tickangle: 0
+            },
+            yaxis: {
+                ...darkLayout.yaxis,
+                title: '',
+                autorange: 'reversed',
+                tickfont: { size: 12, color: '#eee' },
+                dtick: 1
+            },
+            margin: { l: 100, t: 50, b: 20, r: 100 },
+            height: heatmapHeight,
+        }, { responsive: true });
+    </script>
+</body>
+</html>

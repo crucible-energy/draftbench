@@ -25,8 +25,9 @@ Speculative decoding uses a small "draft" model to propose tokens that a larger 
 
 ## Prerequisites
 
-### 1. Build llama.cpp
+### 1. Build llama.cpp OR neural-llama
 
+**Option A: Standard llama.cpp**
 ```bash
 git clone https://github.com/ggerganov/llama.cpp.git
 cd llama.cpp
@@ -34,6 +35,17 @@ mkdir build && cd build
 cmake ..                    # Add -DLLAMA_CUDA=ON for NVIDIA or -DLLAMA_METAL=ON for Apple Silicon
 cmake --build . --config Release -j
 ```
+
+**Option B: neural-llama (Apple Silicon optimized)**
+```bash
+git clone https://github.com/neural-llama/neural-llama.git
+cd neural-llama
+mkdir build-apple-silicon && cd build-apple-silicon
+cmake .. -DCMAKE_BUILD_TYPE=Release -DLLAMA_METAL=ON
+cmake --build . --config Release -j
+```
+
+neural-llama provides significant performance improvements on Apple Silicon (M1/M2/M3) by leveraging the Neural Engine through CoreML and optimized Metal backends.
 
 ### 2. Download Models
 
@@ -80,11 +92,19 @@ python bench.py --url http://127.0.0.1:8080 --requests 5 --max-tokens 512
 ### Using the Server Launcher
 
 ```bash
-# Without draft (baseline)
+# Without draft (baseline) - llama.cpp
 python server.py llama-cpp --model-path /path/to/72b-model.gguf
 
-# With draft (speculative decoding)
+# With draft (speculative decoding) - llama.cpp
 python server.py llama-cpp \
+    --model-path /path/to/72b-model.gguf \
+    --draft-path /path/to/3b-draft.gguf
+
+# Without draft (baseline) - neural-llama (Apple Silicon)
+python server.py neural-llama --model-path /path/to/72b-model.gguf
+
+# With draft (speculative decoding) - neural-llama (Apple Silicon)
+python server.py neural-llama \
     --model-path /path/to/72b-model.gguf \
     --draft-path /path/to/3b-draft.gguf
 ```
@@ -102,8 +122,8 @@ Create `configs/my_sweep.json`:
 ```json
 {
   "name": "qwen25-72b",
-  "hardware": "rtx4090-24gb",
-  "backend": "llamacpp",
+  "hardware": "m3-max-128gb",
+  "backend": "neural-llama",
   "model_family": "Qwen2.5",
 
   "targets": [
@@ -116,7 +136,7 @@ Create `configs/my_sweep.json`:
     {"label": "3B Q4_K_M", "path": "/path/to/qwen2.5-3b-instruct-q4_k_m.gguf"}
   ],
   "settings": {
-    "llama_bin": "/path/to/llama-server",
+    "llama_bin": "/path/to/neural-llama/build-apple-silicon/bin/llama-server",
     "runs": 1,
     "max_tokens": 1024,
     "temperature": 0.0,
@@ -129,8 +149,8 @@ Create `configs/my_sweep.json`:
 
 **Metadata fields:**
 - `name`: Short identifier for this sweep (used in filenames)
-- `hardware`: Hardware identifier (e.g., `rtx4090-24gb`, `a100-80gb`)
-- `backend`: Inference backend (`llamacpp`, `vllm`, `lmstudio`)
+- `hardware`: Hardware identifier (e.g., `rtx4090-24gb`, `m3-max-128gb`, `a100-80gb`)
+- `backend`: Inference backend (`llamacpp`, `neural-llama`, `vllm`, `lmstudio`)
 - `model_family`: Model family name for chart titles
 
 **Settings:**
@@ -310,3 +330,81 @@ Your target model is already fast enough that draft overhead hurts. Try a smalle
 
 ### Out of memory
 Reduce `gpu_layers` or use more aggressive quantization (Q4_0 instead of Q8_0).
+
+---
+
+## Qwen 3.5 Benchmarks
+
+This section documents benchmarking Qwen 3.5 models converted to GGUF format, including speculative decoding experiments with Qwen 2.5 draft models.
+
+### Converting Qwen 3.5 to GGUF
+
+Qwen 3.5 is a multimodal model. To use it with `llama.cpp` / `neural-llama`, the text-only component must be extracted and converted to GGUF format using the `neural-llama` converter (which includes Qwen 3.5 architecture support).
+
+**Prerequisites:**
+- Clone and build [neural-llama](https://github.com/neural-llama/neural-llama) (includes Qwen 3.5 support in `convert_hf_to_gguf.py`)
+- Download the model from HuggingFace: `Qwen/Qwen3.5-9B`
+
+**Conversion:**
+```bash
+# Download the model
+python3 -c "from huggingface_hub import snapshot_download; snapshot_download(repo_id='Qwen/Qwen3.5-9B', local_dir='models/models--Qwen--Qwen3.5-9B')"
+
+# Convert to GGUF (f16)
+python3 /path/to/neural-llama/convert_hf_to_gguf.py \
+    models/models--Qwen--Qwen3.5-9B \
+    --outfile models/Qwen3.5-9B-f16.gguf \
+    --outtype f16
+```
+
+Or use the included helper script:
+```bash
+python3 convert_qwen35_to_gguf.py
+```
+
+**Note:** The converter's `Qwen2Model.set_vocab` method was patched to catch `ImportError` (in addition to `FileNotFoundError`) for `sentencepiece`, allowing it to fall back to `_set_vocab_gpt2()` when the `sentencepiece` package is not installed.
+
+### Baseline Results (Qwen 3.5 9B, M3 Max)
+
+| Configuration | Mean TPS | Peak TPS | Mean TTFT |
+|---------------|----------|----------|-----------|
+| Qwen3.5-9B f16 (baseline) | 11.71 | 35.1 | 11.04s |
+
+The mean TPS is lower than peak because requests 2 and 3 in a 3-request run show 0.0 TPS, likely due to KV cache pressure at the 4096 context window. The first request consistently achieves ~35 tok/s on M3 Max with neural-llama.
+
+### Speculative Decoding Experiments
+
+Tested Qwen 3.5 9B (target) with Qwen 2.5 family draft models:
+
+| Target | Draft | Mean TPS | Peak TPS | Speedup |
+|--------|-------|----------|----------|---------|
+| Qwen3.5-9B f16 | _(none, baseline)_ | 11.71 | 35.1 | — |
+| Qwen3.5-9B f16 | Qwen2.5-0.5B f16 | 11.80 | 35.4 | +0.8% |
+| Qwen3.5-9B f16 | Qwen2.5-1.5B f16 | 11.60 | 34.8 | −0.9% |
+
+**Key observations:**
+1. **Cross-family draft models provide minimal benefit.** The Qwen 3.5 target and Qwen 2.5 draft models share a tokenizer but differ significantly in architecture, resulting in very low draft acceptance rates.
+2. **No acceptance rate data** was logged by the server, suggesting the speculative decoding path may not have been fully engaged or the architectures are too dissimilar for effective speculation.
+3. **The target model is already fast** (~35 tok/s peak on M3 Max), placing it in the "not recommended" zone for speculative decoding per our general guidelines (>30 tok/s targets rarely benefit).
+
+**Recommendation:** For Qwen 3.5, speculative decoding gains will require a same-family draft model (i.e., a smaller Qwen 3.5 variant) once one becomes available. Cross-family Qwen 2.5 draft models are not effective.
+
+### Reproducing
+
+```bash
+# 1. Convert models
+python3 convert_qwen35_to_gguf.py
+
+# 2. Run baseline + speculative sweep
+python3 sweep.py --config configs/qwen3.5-speculative.json
+
+# 3. View results
+open results/m3-max-apple-silicon_neural-llama_qwen3.5-speculative-benchmark.html
+```
+
+### Config Files
+
+| Config | Description |
+|--------|-------------|
+| `configs/qwen3.5-converted.json` | Baseline benchmark for converted Qwen 3.5 9B |
+| `configs/qwen3.5-speculative.json` | Speculative decoding sweep (9B + 0.5B/1.5B drafts) |

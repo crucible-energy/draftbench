@@ -38,8 +38,10 @@ def _find_llama_server() -> str | None:
     if shutil.which("llama-server"):
         return "llama-server"
 
-    # Common build locations
+    # Common build locations (check neural-llama first, then llama.cpp)
     candidates = [
+        "~/neural-llama/build/bin/llama-server",
+        "~/neural-llama/build-apple-silicon/bin/llama-server",
         "~/llama.cpp/build/bin/llama-server",
         "~/Code/llama.cpp/build/bin/llama-server",
         "/usr/local/bin/llama-server",
@@ -201,6 +203,128 @@ class LlamaCppBackend(ServerBackend):
 
 
 # ---------------------------------------------------------------------------
+# Neural Llama (Apple Silicon optimized)
+# ---------------------------------------------------------------------------
+
+class NeuralLlamaBackend(LlamaCppBackend):
+    """Launches llama-server from neural-llama (Apple Silicon optimized)."""
+
+    def __init__(
+        self,
+        model_path: str,
+        draft_path: str | None = None,
+        host: str = "127.0.0.1",
+        port: int = 8080,
+        gpu_layers: int = 99,
+        ctx_size: int = 4096,
+        llama_bin: str | None = None,
+        extra_args: list[str] | None = None,
+        log_file: str | None = None,
+    ):
+        # Set default extra_args for neural-llama optimizations (no extra args needed)
+        neural_extra_args = []
+        if extra_args:
+            neural_extra_args.extend(extra_args)
+        
+        # Call parent __init__ but don't do file checks here - we'll handle them in start()
+        super().__init__(
+            model_path=model_path,
+            draft_path=draft_path,
+            host=host,
+            port=port,
+            gpu_layers=gpu_layers,
+            ctx_size=ctx_size,
+            llama_bin=llama_bin,
+            extra_args=neural_extra_args,
+            log_file=log_file,
+        )
+
+    def _convert_builtin_model_path(self, model_path: str) -> str:
+        """Convert built-in model identifiers to command line flags."""
+        builtin_mapping = {
+            "fim-qwen-0.5b-default": "--fim-qwen-0.5b-default",
+            "fim-qwen-1.5b-default": "--fim-qwen-1.5b-default", 
+            "fim-qwen-3b-default": "--fim-qwen-3b-default",
+            "fim-qwen-7b-default": "--fim-qwen-7b-default",
+            "fim-qwen-7b-spec": "--fim-qwen-7b-spec",
+            "fim-qwen-14b-spec": "--fim-qwen-14b-spec",
+            "fim-qwen-30b-default": "--fim-qwen-30b-default",
+        }
+        return builtin_mapping.get(model_path, model_path)
+
+    def _build_cmd(self) -> list[str]:
+        # Handle built-in models
+        target_flag = self._convert_builtin_model_path(self.model_path)
+        if target_flag.startswith("--"):
+            # Built-in model - use flag instead of -m
+            cmd = [
+                self.llama_bin,
+                target_flag,
+                "--host", self.host,
+                "--port", str(self.port),
+                "-ngl", str(self.gpu_layers),
+                "-c", str(self.ctx_size),
+            ]
+        else:
+            # Regular file path
+            cmd = [
+                self.llama_bin,
+                "-m", self.model_path,
+                "--host", self.host,
+                "--port", str(self.port),
+                "-ngl", str(self.gpu_layers),
+                "-c", str(self.ctx_size),
+            ]
+        
+        # Handle draft model
+        if self.draft_path:
+            draft_flag = self._convert_builtin_model_path(self.draft_path)
+            if draft_flag.startswith("--"):
+                # Built-in draft model - use flag instead of --model-draft
+                cmd += [draft_flag]
+            else:
+                # Regular file path
+                cmd += ["--model-draft", self.draft_path]
+        
+        cmd += self.extra_args
+        return cmd
+
+    def start(self) -> None:
+        if not self.llama_bin or not os.path.isfile(self.llama_bin):
+            raise FileNotFoundError(f"neural-llama-server binary not found at {self.llama_bin}")
+        
+        # Skip file existence check for built-in models (starting with "fim-")
+        target_is_builtin = self.model_path.startswith("fim-")
+        draft_is_builtin = self.draft_path and self.draft_path.startswith("fim-")
+        
+        if not target_is_builtin and not os.path.isfile(self.model_path):
+            raise FileNotFoundError(f"Model file not found at {self.model_path}")
+        if self.draft_path and not draft_is_builtin and not os.path.isfile(self.draft_path):
+            raise FileNotFoundError(f"Draft model file not found at {self.draft_path}")
+
+        cmd = self._build_cmd()
+        label = "neural-llama"
+        if self.draft_path:
+            label += " (speculative)"
+        print(f"  [{label}] Starting server on {self.host}:{self.port}")
+        print(f"  Command: {' '.join(cmd)}")
+
+        if self.log_file:
+            self._log_fh = open(self.log_file, "w")
+            out = self._log_fh
+        else:
+            self._log_fh = None
+            out = sys.stderr
+
+        self._process = subprocess.Popen(
+            cmd,
+            stdout=out,
+            stderr=out,
+        )
+        print(f"  [{label}] Server pid={self._process.pid}")
+
+
+# ---------------------------------------------------------------------------
 # LM Studio
 # ---------------------------------------------------------------------------
 
@@ -279,6 +403,52 @@ class VLLMBackend(ServerBackend):
 
 
 # ---------------------------------------------------------------------------
+# Transformers
+# ---------------------------------------------------------------------------
+
+class TransformersBackend(ServerBackend):
+    """Launches a simple OpenAI-compatible server using transformers."""
+
+    def __init__(
+        self,
+        model: str,
+        draft_model: str | None = None,
+        host: str = "0.0.0.0",
+        port: int = 8000,
+        extra_args: list[str] | None = None,
+    ):
+        super().__init__(host, port)
+        self.model = model
+        self.draft_model = draft_model
+        self.extra_args = extra_args or []
+
+    def _build_cmd(self) -> list[str]:
+        cmd = [
+            sys.executable, "-m", "transformers agents",
+            "--model", self.model,
+            "--host", self.host,
+            "--port", str(self.port),
+        ]
+        cmd += self.extra_args
+        return cmd
+
+    def start(self) -> None:
+        cmd = self._build_cmd()
+        label = "Transformers"
+        if self.draft_model:
+            label += " (draft)"
+        print(f"  [{label}] Starting server on {self.host}:{self.port}")
+        print(f"  Command: {' '.join(cmd)}")
+
+        self._process = subprocess.Popen(
+            cmd,
+            stdout=sys.stdout,
+            stderr=sys.stderr,
+        )
+        print(f"  [{label}] Server pid={self._process.pid}")
+
+
+# ---------------------------------------------------------------------------
 # Factory
 # ---------------------------------------------------------------------------
 
@@ -286,13 +456,15 @@ def create_backend(backend_type: str, **kwargs) -> ServerBackend:
     """Create a server backend by name.
 
     Args:
-        backend_type: One of "llama-cpp", "lm-studio", "vllm".
+        backend_type: One of "llama-cpp", "neural-llama", "lm-studio", "vllm", "transformers".
         **kwargs: Passed to the backend constructor.
     """
     backends = {
         "llama-cpp": LlamaCppBackend,
+        "neural-llama": NeuralLlamaBackend,
         "lm-studio": LMStudioBackend,
         "vllm": VLLMBackend,
+        "transformers": TransformersBackend,
     }
     cls = backends.get(backend_type)
     if cls is None:
@@ -348,6 +520,17 @@ def main():
     p_llama.add_argument("--llama-bin", default=None, help="Path to llama-server binary (auto-detected from PATH or common locations)")
     p_llama.add_argument("extra_args", nargs="*", help="Extra arguments passed to llama-server")
 
+    # -- neural-llama --
+    p_neural = subparsers.add_parser("neural-llama", help="Launch neural-llama server (Apple Silicon optimized)")
+    p_neural.add_argument("--model-path", required=True, help="Path to the GGUF model file")
+    p_neural.add_argument("--draft-path", default=None, help="Path to a draft GGUF model for speculative decoding")
+    p_neural.add_argument("--host", default="127.0.0.1", help="Bind address (default: 127.0.0.1)")
+    p_neural.add_argument("--port", type=int, default=8080, help="Port (default: 8080)")
+    p_neural.add_argument("--gpu-layers", type=int, default=99, help="Number of GPU layers to offload (default: 99)")
+    p_neural.add_argument("--ctx-size", type=int, default=4096, help="Context size (default: 4096)")
+    p_neural.add_argument("--llama-bin", default=None, help="Path to neural-llama-server binary (auto-detected from PATH or common locations)")
+    p_neural.add_argument("extra_args", nargs="*", help="Extra arguments passed to neural-llama-server")
+
     # -- lm-studio --
     p_lms = subparsers.add_parser("lm-studio", help="Connect to LM Studio server")
     p_lms.add_argument("--host", default="127.0.0.1", help="LM Studio host (default: 127.0.0.1)")
@@ -365,6 +548,17 @@ def main():
 
     if args.backend == "llama-cpp":
         backend = LlamaCppBackend(
+            model_path=args.model_path,
+            draft_path=args.draft_path,
+            host=args.host,
+            port=args.port,
+            gpu_layers=args.gpu_layers,
+            ctx_size=args.ctx_size,
+            llama_bin=args.llama_bin,
+            extra_args=args.extra_args,
+        )
+    elif args.backend == "neural-llama":
+        backend = NeuralLlamaBackend(
             model_path=args.model_path,
             draft_path=args.draft_path,
             host=args.host,

@@ -1,0 +1,26 @@
+{
+  "name": "qwen3.5-benchmark",
+  "hardware": "m3-max-apple-silicon",
+  "backend": "neural-llama",
+  "model_family": "Qwen 3.5 Coder Series",
+
+  "targets": [
+    {"label": "Qwen3.5-Coder 7B", "path": "/Users/sam/Documents/git/crucible/draftbench/models/qwen3.5-coder-7b-instruct-q4_k_m.gguf"},
+    {"label": "Qwen3.5-Coder 14B", "path": "/Users/sam/Documents/git/crucible/draftbench/models/qwen3.5-coder-14b-instruct-q4_k_m.gguf"},
+    {"label": "Qwen3.5-Coder 32B", "path": "/Users/sam/Documents/git/crucible/draftbench/models/qwen3.5-coder-32b-instruct-q4_k_m.gguf"}
+  ],
+  "drafts": [
+    {"label": "Qwen3.5-Coder 0.5B", "path": "/Users/sam/Documents/git/crucible/draftbench/models/qwen3.5-coder-0.5b-instruct-q4_k_m.gguf"},
+    {"label": "Qwen3.5-Coder 1.8B", "path": "/Users/sam/Documents/git/crucible/draftbench/models/qwen3.5-coder-1.8b-instruct-q4_k_m.gguf"},
+    {"label": "Qwen3.5-Coder 3B", "path": "/Users/sam/Documents/git/crucible/draftbench/models/qwen3.5-coder-3b-instruct-q4_k_m.gguf"}
+  ],
+  "settings": {
+    "llama_bin": "/Users/sam/Documents/git/crucible/neural-llama/build-apple-silicon/bin/llama-server",
+    "runs": 2,
+    "max_tokens": 256,
+    "temperature": 0.0,
+    "gpu_layers": 99,
+    "ctx_size": 4096,
+    "port": 8080
+  }
+}
