@@ -30,6 +30,24 @@ This policy is mandatory for every human and agent working in this repository.
   requires Sam's explicit approval for that exact change. Preserve stricter
   repository rules.
 
+## Crucible ecosystem orientation
+
+For a source-first architecture review from this repository, start with
+[Crucible ecosystem orientation in Codex][crucible-ecosystem-orientation].
+Read this repository's `README.md`, `AGENTS.md`, and owner docs. Record this
+checkout's branch, commit, and dirty state, then trace concrete callers,
+consumers, and data paths in both directions. The guide's curated reading order
+prioritizes attention; it does not assert runtime dependencies. Use its
+evidence labels: implemented, documented plan, observed, measured, or unknown.
+
+Treat Atlas as a live dependency graph only when its registered Citadel query
+returns a current, coherent source cut with provenance, freshness/as-of,
+coverage, and explicit omissions. A missing or unready route, fixture, or stale
+result means unavailable; do not substitute a static map.
+
+[crucible-ecosystem-orientation]:
+  https://github.com/crucible-energy/aletheia/blob/main/docs/onboarding/codex-architecture-review.md
+
 ## Parent Workspace Directory Hygiene (Required)
 
 This policy is mandatory for every human and agent working in this repository.
